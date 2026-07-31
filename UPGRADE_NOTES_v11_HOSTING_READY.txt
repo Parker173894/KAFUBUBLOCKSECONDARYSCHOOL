@@ -1,0 +1,21 @@
+KAFUBU BLOCK SECONDARY SCHOOL PORTAL
+VERSION 11 - RENDER AND RAILWAY HOSTING READY
+
+Added:
+
+1. Active render.yaml Blueprint configuration.
+2. Paid Render persistent disk configuration for the SQLite database and uploads.
+3. Python 3.12.8 version pin to avoid unexpected runtime-version changes.
+4. Production Gunicorn start command with one SQLite-safe worker.
+5. /health endpoint for hosting health checks.
+6. Procfile for compatible Python hosting platforms.
+7. railway.toml and Railway persistent-volume instructions.
+8. Complete Render and Railway deployment guide.
+
+Important:
+
+- Render Free is not suitable for permanent pupil records, uploaded images,
+  videos and documents because its local filesystem is temporary.
+- Use the Render Starter service with the configured disk, or Railway with a
+  persistent volume.
+- Keep passwords and secret keys in hosting environment variables only.
