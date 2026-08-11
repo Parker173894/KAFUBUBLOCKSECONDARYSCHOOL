@@ -1,0 +1,18 @@
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 12
+
+ACCOUNT PROVISIONING FIX
+
+Production databases created by version 11 could contain only the Headteacher
+account. Version 12 safely creates any missing official Deputy Headteacher, HR,
+Guidance and HOD accounts as inactive accounts with random passwords.
+
+After deployment:
+1. Log in as Headteacher.
+2. Open Manage Passwords.
+3. Search for "hod" to display all HOD accounts.
+4. Reset each account with a strong private temporary password.
+5. Password reset automatically activates the account.
+6. Each HOD must change the temporary password after the first login.
+
+No known or public default passwords are enabled in production.
+Existing school records on the persistent disk are preserved.

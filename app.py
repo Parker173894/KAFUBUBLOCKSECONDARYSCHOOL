@@ -550,6 +550,46 @@ def init_db():
             c.execute('''INSERT INTO users(username,password,role,full_name,position,department,bio,email,phone,qualification,address,student_number)
                          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                       (u[0], generate_password_hash(u[1]), u[2], u[3], u[4], u[5], u[6], f'{u[0]}@kafubublock.edu.zm', '+260 XXX XXX XXX', '', '', 'KBSS-001' if u[0]=='student1' else ('KBSS-002' if u[0]=='student2' else None)))
+
+    # A production database must include the official institutional accounts,
+    # but it must never ship with public/default passwords. Provision missing
+    # accounts as inactive with random unusable passwords. The Headteacher or
+    # HR activates each account by issuing a private temporary password from
+    # Manage Passwords. This also repairs production databases created by
+    # earlier releases that contained only the Headteacher account.
+    if IS_PRODUCTION and not DEMO_MODE:
+        production_accounts = [
+            ('deputy', 'deputy_headteacher', 'Deputy Headteacher', 'Deputy Head Teacher', None,
+             'Supports school operations, discipline, teacher supervision and learner welfare.'),
+            ('hr', 'hr', 'Human Resource Officer', 'Human Resource Officer', None,
+             'Manages staff records, welfare, leave documents and HR-related communication.'),
+            ('guidance', 'guidance_counselling', 'Guidance and Counselling Teacher', 'Guidance and Counselling Teacher', None,
+             'Provides counselling support and publishes learner guidance information.'),
+            ('hod_math', 'hod_mathematics', 'HOD Mathematics', 'Head of Department', 'mathematics',
+             'Coordinates Mathematics teaching, assessment, records and learner support.'),
+            ('hod_natural', 'hod_natural_science', 'HOD Natural Science', 'Head of Department', 'natural_science',
+             'Coordinates Biology, Chemistry and Physics teaching materials.'),
+            ('hod_social', 'hod_social_science', 'HOD Social Science', 'Head of Department', 'social_science',
+             'Coordinates Civic Education, History, Geography and Religious Education materials.'),
+            ('hod_computer', 'hod_computer_science', 'HOD Computer Science', 'Head of Department', 'computer_science',
+             'Coordinates Computer Studies, ICT resources and digital learning.'),
+            ('hod_business', 'hod_business', 'HOD Business', 'Head of Department', 'business',
+             'Coordinates Commerce, Accounts, Business Studies and entrepreneurship materials.'),
+            ('hod_home', 'hod_home_economics', 'HOD Home Economics', 'Head of Department', 'home_economics',
+             'Coordinates Food and Nutrition, Design and Technology, and practical work.'),
+            ('hod_language', 'hod_language', 'HOD Language', 'Head of Department', 'language',
+             'Coordinates English, local languages, literacy and communication skills.'),
+        ]
+        for username, role, full_name, position, department, bio in production_accounts:
+            if not c.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone():
+                c.execute('''INSERT INTO users(
+                    username,password,role,full_name,position,department,bio,email,phone,
+                    qualification,address,student_number,must_change_password,is_active
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,0)''', (
+                    username, generate_password_hash(secrets.token_urlsafe(48)), role,
+                    full_name, position, department, bio,
+                    RECOVERY_ALLOWED_EMAIL if username == 'hr' else '', '', '', '', None
+                ))
     if DEMO_MODE:
         c.execute("UPDATE users SET full_name=?, position=?, bio=? WHERE username=?",
                   ('Subject Teacher', 'Subject Teacher', 'Subject teacher account for downloading departmental materials, entering learner results and accessing official documents.', 'teacher'))
