@@ -2153,16 +2153,69 @@ def results():
         test1 = float(request.form.get('test1') or 0); test2 = float(request.form.get('test2') or 0); end_term = float(request.form.get('end_term') or 0)
         total, average = calc_result(test1, test2, end_term)
         comment = request.form.get('comment','')
+        duplicate = conn.execute('''SELECT id FROM results
+                                    WHERE student_id=? AND lower(trim(subject))=lower(trim(?))
+                                      AND grade=? AND term=? AND academic_year=?''',
+                                 (student_id, subject, grade, term, year)).fetchone()
+        if duplicate:
+            conn.close()
+            flash('This pupil already has a result for the same subject, term and academic year. Use Edit on the existing result instead of entering a duplicate.', 'warning')
+            return redirect(url_for('results', grade=grade, term=term))
         conn.execute('''INSERT INTO results(student_id,subject,grade,term,academic_year,test1,test2,end_term,total,average,comment,entered_by,entered_at)
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', (student_id, subject, grade, term, year, test1, test2, end_term, total, average, comment, session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M')))
         conn.commit(); conn.close(); flash('Result added successfully.','success'); return redirect(url_for('results'))
     selected_grade=request.args.get('grade','')
+    selected_term=request.args.get('term','')
     students_list=conn.execute('SELECT * FROM students ORDER BY grade, class_name, full_name').fetchall()
+    query='''SELECT results.*, students.full_name, students.student_number, students.class_name,
+                    (SELECT COUNT(*) FROM results duplicate_result
+                     WHERE duplicate_result.student_id=results.student_id
+                       AND lower(trim(duplicate_result.subject))=lower(trim(results.subject))
+                       AND duplicate_result.grade=results.grade
+                       AND duplicate_result.term=results.term
+                       AND duplicate_result.academic_year=results.academic_year) AS duplicate_count
+             FROM results JOIN students ON results.student_id=students.id WHERE 1=1'''
+    params=[]
     if selected_grade:
-        rows=conn.execute('''SELECT results.*, students.full_name, students.student_number, students.class_name FROM results JOIN students ON results.student_id=students.id WHERE results.grade=? ORDER BY results.entered_at DESC''', (selected_grade,)).fetchall()
-    else:
-        rows=conn.execute('''SELECT results.*, students.full_name, students.student_number, students.class_name FROM results JOIN students ON results.student_id=students.id ORDER BY results.entered_at DESC''').fetchall()
-    conn.close(); return render_template('results.html', students=students_list, results=rows, selected_grade=selected_grade)
+        query += ' AND results.grade=?'; params.append(selected_grade)
+    if selected_term:
+        query += ' AND results.term=?'; params.append(selected_term)
+    query += ' ORDER BY results.term, results.academic_year DESC, students.full_name, results.subject, results.entered_at DESC'
+    rows=conn.execute(query, params).fetchall()
+    conn.close()
+    result_sections=[(term, [row for row in rows if row['term'] == term]) for term in TERMS]
+    can_correct_results=session.get('role') in ['headteacher','deputy_headteacher','hr'] or session.get('role') in ROLE_TO_DEPT
+    return render_template('results.html', students=students_list, results=rows, result_sections=result_sections,
+                           selected_grade=selected_grade, selected_term=selected_term,
+                           can_correct_results=can_correct_results)
+
+@app.route('/edit-result/<int:result_id>', methods=['GET','POST'])
+@login_required
+@roles_required(*ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+def edit_result(result_id):
+    conn=get_db()
+    result=conn.execute('''SELECT results.*, students.full_name, students.student_number
+                           FROM results JOIN students ON results.student_id=students.id
+                           WHERE results.id=?''', (result_id,)).fetchone()
+    if not result:
+        conn.close(); flash('Result not found.', 'danger'); return redirect(url_for('results'))
+    if request.method == 'POST':
+        subject=request.form['subject'].strip(); grade=request.form['grade']; term=request.form['term']; year=request.form['academic_year'].strip()
+        test1=float(request.form.get('test1') or 0); test2=float(request.form.get('test2') or 0); end_term=float(request.form.get('end_term') or 0)
+        total, average=calc_result(test1, test2, end_term)
+        duplicate=conn.execute('''SELECT id FROM results WHERE id<>? AND student_id=?
+                                  AND lower(trim(subject))=lower(trim(?)) AND grade=? AND term=? AND academic_year=?''',
+                               (result_id, result['student_id'], subject, grade, term, year)).fetchone()
+        if duplicate:
+            conn.close(); flash('Another result already exists for this pupil, subject, term and year. Delete the duplicate or edit that record.', 'warning')
+            return redirect(url_for('edit_result', result_id=result_id))
+        conn.execute('''UPDATE results SET subject=?, grade=?, term=?, academic_year=?, test1=?, test2=?, end_term=?,
+                        total=?, average=?, comment=?, entered_by=?, entered_at=? WHERE id=?''',
+                     (subject, grade, term, year, test1, test2, end_term, total, average,
+                      request.form.get('comment','').strip(), session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M'), result_id))
+        conn.commit(); conn.close(); flash('Result updated successfully.', 'success')
+        return redirect(url_for('results', grade=grade, term=term))
+    conn.close(); return render_template('edit_result.html', result=result)
 
 @app.route('/student-results')
 @login_required
@@ -2423,9 +2476,14 @@ def download_result_download_logs():
 
 @app.route('/delete-result/<int:result_id>', methods=['POST'])
 @login_required
-@roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+@roles_required(*ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
 def delete_result(result_id):
-    conn=get_db(); conn.execute('DELETE FROM results WHERE id=?', (result_id,)); conn.commit(); conn.close(); flash('Result deleted.','info'); return redirect(url_for('results'))
+    conn=get_db(); result=conn.execute('SELECT grade, term FROM results WHERE id=?', (result_id,)).fetchone()
+    if not result:
+        conn.close(); flash('Result not found.', 'danger'); return redirect(url_for('results'))
+    conn.execute('DELETE FROM results WHERE id=?', (result_id,)); conn.commit(); conn.close()
+    flash('Result deleted successfully.','info')
+    return redirect(url_for('results', grade=result['grade'], term=result['term']))
 
 
 

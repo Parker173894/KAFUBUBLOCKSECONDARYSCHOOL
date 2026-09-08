@@ -1,0 +1,11 @@
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 14
+
+FAST PUPIL SEARCH WHEN ENTERING RESULTS
+
+- Staff can search by any part of a pupil's full name.
+- Staff can search by any part of a student number.
+- The pupil selection list narrows instantly while typing.
+- A matching-pupil count is displayed.
+- The form prevents selection when no pupil matches the search.
+- All Version 13 term separation, editing, deletion and duplicate controls remain included.
+- Existing records in /var/data/school.db are preserved.

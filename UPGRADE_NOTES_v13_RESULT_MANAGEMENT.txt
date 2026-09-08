@@ -1,0 +1,10 @@
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 13
+
+RESULT MANAGEMENT UPGRADE
+
+- Results are displayed separately under Term 1, Term 2 and Term 3.
+- Grade and term filters can be used together.
+- HR, HODs, Headteacher and Deputy Headteacher can edit or delete results.
+- Existing duplicate results are labelled, and future duplicates are blocked.
+- Teachers can enter results but cannot edit or delete them after submission.
+- Existing records in /var/data/school.db are preserved.
