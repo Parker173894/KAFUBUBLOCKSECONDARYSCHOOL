@@ -2,7 +2,7 @@
 {% block content %}
 <section class="page">
   <h2>Add Pupil Results</h2>
-  <div class="notice success"><b>Version 16.1 Midterm and Attendance Update is active.</b></div>
+  <div class="notice success"><b>Version 17 Attendance Percentage and Term Download is active.</b></div>
   <p>Enter marks under the correct term. The system prevents a second result for the same pupil, subject, term and academic year.</p>
   <form method="post" class="form-card wide">
     <label for="pupilSearch">Find Pupil by Name or Student Number</label>
@@ -26,10 +26,10 @@
   </form>
   {% for term, term_results in result_sections %}{% if not selected_term or selected_term == term %}
     <div class="card"><h3>{{ term }} Results ({{ term_results|length }})</h3><div class="table-wrap"><table>
-      <tr><th>Pupil</th><th>Subject</th><th>Grade/Form</th><th>Year</th><th>Midterm</th><th>End Term</th><th>Average</th><th>Result Grade</th><th>Comment</th><th>Attendance P/A</th>{% if can_correct_results %}<th>Actions</th>{% endif %}</tr>
+      <tr><th>Pupil</th><th>Subject</th><th>Grade/Form</th><th>Year</th><th>Midterm</th><th>End Term</th><th>Average</th><th>Result Grade</th><th>Comment</th><th>Present</th><th>Absent</th><th>Attendance %</th>{% if can_correct_results %}<th>Actions</th>{% endif %}</tr>
       {% for r in term_results %}<tr>
         <td>{{ r.student_number }} - {{ r.full_name }}{% if r.duplicate_count > 1 %}<br><span class="notice warning">Duplicate entry</span>{% endif %}</td>
-        <td>{{ r.subject }}</td><td>{{ r.grade }}</td><td>{{ r.academic_year }}</td><td>{{ r.midterm }}</td><td>{{ r.end_term }}</td><td>{{ r.average }}%</td><td>{{ result_grade(r.average, r.grade) }}</td><td>{{ r.comment }}</td><td>{{ r.attendance_present }}/{{ r.attendance_absent }}</td>
+        <td>{{ r.subject }}</td><td>{{ r.grade }}</td><td>{{ r.academic_year }}</td><td>{{ r.midterm }}</td><td>{{ r.end_term }}</td><td>{{ r.average }}%</td><td>{{ result_grade(r.average, r.grade) }}</td><td>{{ r.comment }}</td><td>{{ r.attendance_present }}</td><td>{{ r.attendance_absent }}</td><td>{{ attendance_percentage(r.attendance_present, r.attendance_absent) }}%</td>
         {% if can_correct_results %}<td><a class="mini-btn" href="{{ url_for('edit_result', result_id=r.id) }}">Edit</a><form method="post" action="{{ url_for('delete_result', result_id=r.id) }}" style="display:inline" onsubmit="return confirm('Delete this result permanently?')"><button class="mini-btn" type="submit">Delete</button></form></td>{% endif %}
       </tr>{% else %}<tr><td colspan="10">No {{ term }} results for the selected grade.</td></tr>{% endfor %}
     </table></div></div>

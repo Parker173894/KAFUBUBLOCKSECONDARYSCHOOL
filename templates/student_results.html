@@ -15,11 +15,16 @@
       <p><b>Pupil Number:</b> {{ student.student_number }}</p>
       <p><b>Class:</b> {{ student.grade }} {{ student.class_name }}</p>
       <p><b>Class Teacher:</b> {{ student.class_teacher or 'Not assigned' }}</p>
-      <p><a class="btn" href="{{ url_for('download_my_result_pdf', student_id=student.id) }}">Download Results in PDF</a></p>
+      <form method="get" action="{{ url_for('download_my_result_pdf') }}" class="inline-form">
+        {% if session.role != 'student' %}<input type="hidden" name="student_id" value="{{ student.id }}">{% endif %}
+        <label for="downloadTerm">Choose Term to Download</label>
+        <select id="downloadTerm" name="term"><option value="">All Terms</option>{% for t in TERMS %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select>
+        <button class="btn" type="submit">Download Selected Results PDF</button>
+      </form>
     </div>
     <table>
-      <tr><th>Subject</th><th>Term</th><th>Year</th><th>Midterm</th><th>End Term</th><th>Average</th><th>Grade</th><th>Comment</th><th>Present</th><th>Absent</th></tr>
-      {% for r in results %}<tr><td>{{ r.subject }}</td><td>{{ r.term }}</td><td>{{ r.academic_year }}</td><td>{{ r.midterm }}</td><td>{{ r.end_term }}</td><td>{{ r.average }}%</td><td>{{ result_grade(r.average, r.grade) }}</td><td>{{ r.comment }}</td><td>{{ r.attendance_present }}</td><td>{{ r.attendance_absent }}</td></tr>{% else %}<tr><td colspan="10">No results uploaded yet.</td></tr>{% endfor %}
+      <tr><th>Subject</th><th>Term</th><th>Year</th><th>Midterm</th><th>End Term</th><th>Average</th><th>Grade</th><th>Comment</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr>
+      {% for r in results %}<tr><td>{{ r.subject }}</td><td>{{ r.term }}</td><td>{{ r.academic_year }}</td><td>{{ r.midterm }}</td><td>{{ r.end_term }}</td><td>{{ r.average }}%</td><td>{{ result_grade(r.average, r.grade) }}</td><td>{{ r.comment }}</td><td>{{ r.attendance_present }}</td><td>{{ r.attendance_absent }}</td><td>{{ attendance_percentage(r.attendance_present, r.attendance_absent) }}%</td></tr>{% else %}<tr><td colspan="11">No results uploaded yet.</td></tr>{% endfor %}
     </table>
   {% else %}
     <p class="hint">Select a pupil to view results, or login as a pupil to view your own results.</p>

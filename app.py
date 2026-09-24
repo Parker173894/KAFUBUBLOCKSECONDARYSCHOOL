@@ -1005,16 +1005,29 @@ def automatic_result_comment(mark):
     return 'Fail'
 
 
-def get_student_result_rows(conn, student_id):
-    return conn.execute('''SELECT results.*,
+def attendance_percentage(present, absent):
+    present = int(present or 0)
+    absent = int(absent or 0)
+    total = present + absent
+    return round((present / total) * 100, 1) if total else 0
+
+
+def get_student_result_rows(conn, student_id, selected_term=''):
+    query = '''SELECT results.*,
         (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Present') AS attendance_present,
         (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Absent') AS attendance_absent
-        FROM results WHERE results.student_id=?
-        ORDER BY results.academic_year DESC, results.term, results.subject''', (student_id,)).fetchall()
+        FROM results WHERE results.student_id=?'''
+    params = [student_id]
+    if selected_term in TERMS:
+        query += ' AND results.term=?'
+        params.append(selected_term)
+    query += ' ORDER BY results.academic_year DESC, results.term, results.subject'
+    return conn.execute(query, params).fetchall()
 
 
 app.jinja_env.globals['result_grade'] = result_grade
 app.jinja_env.globals['automatic_result_comment'] = automatic_result_comment
+app.jinja_env.globals['attendance_percentage'] = attendance_percentage
 
 
 def log_password_action(conn, target_user, action, note=''):
@@ -2497,6 +2510,9 @@ def student_portal_control():
 @student_results_open_required
 def download_my_result_pdf():
     conn = get_db()
+    selected_term = request.args.get('term', '').strip()
+    if selected_term and selected_term not in TERMS:
+        selected_term = ''
     if session.get('role') == 'student':
         user = conn.execute('SELECT * FROM users WHERE id=?', (session['user_id'],)).fetchone()
         student = conn.execute('SELECT * FROM students WHERE student_number=?', (user['student_number'],)).fetchone() if user and user['student_number'] else None
@@ -2507,7 +2523,7 @@ def download_my_result_pdf():
         student = conn.execute('SELECT * FROM students WHERE id=?', (student_id,)).fetchone() if student_id else None
     if not student:
         conn.close(); flash('Pupil record not found.', 'danger'); return redirect(url_for('student_results'))
-    rows = get_student_result_rows(conn, student['id'])
+    rows = get_student_result_rows(conn, student['id'], selected_term)
     analysis = analyse_results(rows)
     conn.execute('''INSERT INTO result_download_logs(student_id, student_number, student_name, grade, class_name, downloaded_by, downloader_role, downloaded_at)
                     VALUES(?,?,?,?,?,?,?,?)''',
@@ -2522,7 +2538,8 @@ def download_my_result_pdf():
     normal = styles['Normal']
     elements = []
     elements.append(Paragraph('KAFUBU BLOCK SECONDARY SCHOOL', title_style))
-    elements.append(Paragraph('STUDENT ACADEMIC REPORT FORM', ParagraphStyle('SubTitle', parent=styles['Heading2'], alignment=1, fontSize=12)))
+    report_heading = f"STUDENT ACADEMIC REPORT FORM - {selected_term.upper()}" if selected_term else 'STUDENT ACADEMIC REPORT FORM - ALL TERMS'
+    elements.append(Paragraph(report_heading, ParagraphStyle('SubTitle', parent=styles['Heading2'], alignment=1, fontSize=12)))
     elements.append(Spacer(1, 0.25*cm))
     info = [
         ['Pupil Name', student['full_name'], 'Pupil No.', student['student_number']],
@@ -2533,13 +2550,14 @@ def download_my_result_pdf():
     t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.4,colors.grey),('BACKGROUND',(0,0),(0,-1),colors.lightgrey),('BACKGROUND',(2,0),(2,-1),colors.lightgrey),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),('FONTNAME',(2,0),(2,-1),'Helvetica-Bold')]))
     elements.append(t)
     elements.append(Spacer(1, 0.4*cm))
-    data = [['Subject','Term','Year','Midterm','End Term','Average','Grade','Present','Absent','Comment']]
+    data = [['Subject','Term','Year','Midterm','End Term','Average','Grade','Attendance','Comment']]
     for r in rows:
-        data.append([r['subject'], r['term'], r['academic_year'], str(r['midterm']), str(r['end_term']), str(r['average']), result_grade(r['average'], r['grade']), str(r['attendance_present']), str(r['attendance_absent']), Paragraph(r['comment'] or '', normal)])
+        attendance_text = f"{r['attendance_present']}P/{r['attendance_absent']}A ({attendance_percentage(r['attendance_present'], r['attendance_absent'])}%)"
+        data.append([r['subject'], r['term'], r['academic_year'], str(r['midterm']), str(r['end_term']), str(r['average']), result_grade(r['average'], r['grade']), attendance_text, Paragraph(r['comment'] or '', normal)])
     if len(data) == 1:
-        data.append(['No results uploaded yet.','','','','','','','','',''])
-    table = Table(data, repeatRows=1, colWidths=[2.3*cm, 1.4*cm, 1.3*cm, 1.4*cm, 1.5*cm, 1.4*cm, 2.2*cm, 1.1*cm, 1.1*cm, 3.4*cm])
-    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.35,colors.grey),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#d9eaf7')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('ALIGN',(3,1),(8,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'TOP'),('FONTSIZE',(0,0),(-1,-1),7)]))
+        data.append(['No results uploaded for the selected term.','','','','','','','',''])
+    table = Table(data, repeatRows=1, colWidths=[2.3*cm, 1.4*cm, 1.3*cm, 1.4*cm, 1.5*cm, 1.4*cm, 2.2*cm, 2.4*cm, 3.4*cm])
+    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.35,colors.grey),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#d9eaf7')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('ALIGN',(3,1),(7,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'TOP'),('FONTSIZE',(0,0),(-1,-1),7)]))
     elements.append(table)
     elements.append(Spacer(1, 0.4*cm))
     summary = [['Result Analysis','Value'], ['Overall Average', f"{analysis['overall_average']}%"], ['Best Subject', f"{analysis['best_subject']} ({analysis['best_average']}%)"], ['Weakest Subject', f"{analysis['weakest_subject']} ({analysis['weakest_average']}%)"], ['Status', analysis['status']]]
@@ -2553,7 +2571,8 @@ def download_my_result_pdf():
     doc.build(elements)
     buffer.seek(0)
     safe_name = secure_filename(student['full_name'].replace(' ', '_')) or 'student'
-    return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=f'{safe_name}_result_report.pdf')
+    term_suffix = selected_term.lower().replace(' ', '_') if selected_term else 'all_terms'
+    return send_file(buffer, mimetype='application/pdf', as_attachment=True, download_name=f'{safe_name}_{term_suffix}_result_report.pdf')
 
 @app.route('/result-download-logs')
 @login_required
