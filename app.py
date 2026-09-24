@@ -299,6 +299,28 @@ def init_db():
         entered_at TEXT NOT NULL,
         FOREIGN KEY(student_id) REFERENCES students(id)
     )''')
+    if not column_exists(c, 'results', 'midterm'):
+        c.execute('ALTER TABLE results ADD COLUMN midterm REAL DEFAULT 0')
+        c.execute('UPDATE results SET midterm=ROUND((COALESCE(test1,0)+COALESCE(test2,0))/2.0,2)')
+        c.execute('''UPDATE results SET total=ROUND(COALESCE(midterm,0)+COALESCE(end_term,0),2),
+                     average=ROUND((COALESCE(midterm,0)+COALESCE(end_term,0))/2.0,2)''')
+        c.execute('''UPDATE results SET comment=CASE
+                     WHEN average>=75 THEN 'Excellent performance'
+                     WHEN average>=50 THEN 'Good performance'
+                     WHEN average>=40 THEN 'Can do better'
+                     ELSE 'Fail' END''')
+    c.execute('''CREATE TABLE IF NOT EXISTS attendance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        attendance_date TEXT NOT NULL,
+        term TEXT NOT NULL,
+        academic_year TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('Present','Absent')),
+        marked_by TEXT NOT NULL,
+        marked_at TEXT NOT NULL,
+        FOREIGN KEY(student_id) REFERENCES students(id),
+        UNIQUE(student_id, attendance_date)
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS result_download_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id INTEGER,
@@ -542,8 +564,8 @@ def init_db():
         ('hod_business', 'business123', 'hod_business', 'HOD Business', 'Head of Department', 'business', 'Coordinates Commerce, Accounts, Business Studies and entrepreneurship materials.'),
         ('hod_home', 'home123', 'hod_home_economics', 'HOD Home Economics', 'Head of Department', 'home_economics', 'Coordinates Food and Nutrition, Design and Technology, and practical work.'),
         ('hod_language', 'language123', 'hod_language', 'HOD Language', 'Head of Department', 'language', 'Coordinates English, local languages, literacy and communication skills.'),
-        ('student1', 'student123', 'student', 'Sample Learner One', 'Pupil', None, 'Pupil portal account for viewing Test 1, Test 2 and End Term results.'),
-        ('student2', 'student123', 'student', 'Sample Learner Two', 'Pupil', None, 'Pupil portal account for viewing Test 1, Test 2 and End Term results.'),
+        ('student1', 'student123', 'student', 'Sample Learner One', 'Pupil', None, 'Pupil portal account for viewing Midterm and End-of-Term results.'),
+        ('student2', 'student123', 'student', 'Sample Learner Two', 'Pupil', None, 'Pupil portal account for viewing Midterm and End-of-Term results.'),
     ] if DEMO_MODE else []
     for u in users:
         if not c.execute('SELECT id FROM users WHERE username=?', (u[0],)).fetchone():
@@ -948,10 +970,51 @@ def sync_staff_return_profile(conn, user_id, full_name, phone, email, address, p
     ))
 
 
-def calc_result(test1, test2, end_term):
-    total = float(test1 or 0) + float(test2 or 0) + float(end_term or 0)
-    average = total / 3 if total else 0
+def calc_result(midterm, end_term):
+    total = float(midterm or 0) + float(end_term or 0)
+    average = total / 2 if total else 0
     return round(total, 2), round(average, 2)
+
+
+def result_grade(mark, grade):
+    mark = float(mark or 0)
+    if grade in {'Grade 10', 'Grade 11', 'Grade 12'}:
+        if mark >= 75: return '1 Distinction'
+        if mark >= 70: return '2 Distinction'
+        if mark >= 65: return '3 Merit'
+        if mark >= 60: return '4 Merit'
+        if mark >= 55: return '5 Credit'
+        if mark >= 50: return '6 Credit'
+        if mark >= 45: return '7 Satisfactory'
+        if mark >= 40: return '8 Satisfactory'
+        return '9 Unsatisfactory'
+    if grade in {'Form 1', 'Form 2', 'Form 3', 'Form 4'}:
+        if mark >= 70: return '1 Outstanding'
+        if mark >= 60: return '2 Advanced'
+        if mark >= 50: return '3 Basic'
+        if mark >= 40: return '4 Satisfactory'
+        return '5 Unsatisfactory'
+    return 'Grading not configured'
+
+
+def automatic_result_comment(mark):
+    mark = float(mark or 0)
+    if mark >= 75: return 'Excellent performance'
+    if mark >= 50: return 'Good performance'
+    if mark >= 40: return 'Can do better'
+    return 'Fail'
+
+
+def get_student_result_rows(conn, student_id):
+    return conn.execute('''SELECT results.*,
+        (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Present') AS attendance_present,
+        (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Absent') AS attendance_absent
+        FROM results WHERE results.student_id=?
+        ORDER BY results.academic_year DESC, results.term, results.subject''', (student_id,)).fetchall()
+
+
+app.jinja_env.globals['result_grade'] = result_grade
+app.jinja_env.globals['automatic_result_comment'] = automatic_result_comment
 
 
 def log_password_action(conn, target_user, action, note=''):
@@ -1016,8 +1079,7 @@ def send_reset_email_or_save(conn, user, reset_link):
 def analyse_results(rows):
     """Return simple result analysis from result rows."""
     total_subjects = len(rows)
-    total_test1 = sum(float(r['test1'] or 0) for r in rows)
-    total_test2 = sum(float(r['test2'] or 0) for r in rows)
+    total_midterm = sum(float(r['midterm'] or 0) for r in rows)
     total_end = sum(float(r['end_term'] or 0) for r in rows)
     total_average = sum(float(r['average'] or 0) for r in rows)
     overall_average = round(total_average / total_subjects, 2) if total_subjects else 0
@@ -1027,8 +1089,7 @@ def analyse_results(rows):
     fail_count = total_subjects - pass_count
     return {
         'total_subjects': total_subjects,
-        'average_test1': round(total_test1 / total_subjects, 2) if total_subjects else 0,
-        'average_test2': round(total_test2 / total_subjects, 2) if total_subjects else 0,
+        'average_midterm': round(total_midterm / total_subjects, 2) if total_subjects else 0,
         'average_end_term': round(total_end / total_subjects, 2) if total_subjects else 0,
         'overall_average': overall_average,
         'best_subject': best['subject'] if best else 'N/A',
@@ -2150,9 +2211,9 @@ def results():
     conn=get_db()
     if request.method == 'POST':
         student_id = request.form['student_id']; subject = request.form['subject']; grade = request.form['grade']; term = request.form['term']; year = request.form['academic_year']
-        test1 = float(request.form.get('test1') or 0); test2 = float(request.form.get('test2') or 0); end_term = float(request.form.get('end_term') or 0)
-        total, average = calc_result(test1, test2, end_term)
-        comment = request.form.get('comment','')
+        midterm = float(request.form.get('midterm') or 0); end_term = float(request.form.get('end_term') or 0)
+        total, average = calc_result(midterm, end_term)
+        comment = automatic_result_comment(average)
         duplicate = conn.execute('''SELECT id FROM results
                                     WHERE student_id=? AND lower(trim(subject))=lower(trim(?))
                                       AND grade=? AND term=? AND academic_year=?''',
@@ -2161,8 +2222,8 @@ def results():
             conn.close()
             flash('This pupil already has a result for the same subject, term and academic year. Use Edit on the existing result instead of entering a duplicate.', 'warning')
             return redirect(url_for('results', grade=grade, term=term))
-        conn.execute('''INSERT INTO results(student_id,subject,grade,term,academic_year,test1,test2,end_term,total,average,comment,entered_by,entered_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''', (student_id, subject, grade, term, year, test1, test2, end_term, total, average, comment, session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M')))
+        conn.execute('''INSERT INTO results(student_id,subject,grade,term,academic_year,midterm,test1,test2,end_term,total,average,comment,entered_by,entered_at)
+                        VALUES(?,?,?,?,?,?,0,0,?,?,?,?,?,?)''', (student_id, subject, grade, term, year, midterm, end_term, total, average, comment, session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M')))
         conn.commit(); conn.close(); flash('Result added successfully.','success'); return redirect(url_for('results'))
     selected_grade=request.args.get('grade','')
     selected_term=request.args.get('term','')
@@ -2173,7 +2234,9 @@ def results():
                        AND lower(trim(duplicate_result.subject))=lower(trim(results.subject))
                        AND duplicate_result.grade=results.grade
                        AND duplicate_result.term=results.term
-                       AND duplicate_result.academic_year=results.academic_year) AS duplicate_count
+                       AND duplicate_result.academic_year=results.academic_year) AS duplicate_count,
+                    (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Present') AS attendance_present,
+                    (SELECT COUNT(*) FROM attendance a WHERE a.student_id=results.student_id AND a.term=results.term AND a.academic_year=results.academic_year AND a.status='Absent') AS attendance_absent
              FROM results JOIN students ON results.student_id=students.id WHERE 1=1'''
     params=[]
     if selected_grade:
@@ -2201,18 +2264,18 @@ def edit_result(result_id):
         conn.close(); flash('Result not found.', 'danger'); return redirect(url_for('results'))
     if request.method == 'POST':
         subject=request.form['subject'].strip(); grade=request.form['grade']; term=request.form['term']; year=request.form['academic_year'].strip()
-        test1=float(request.form.get('test1') or 0); test2=float(request.form.get('test2') or 0); end_term=float(request.form.get('end_term') or 0)
-        total, average=calc_result(test1, test2, end_term)
+        midterm=float(request.form.get('midterm') or 0); end_term=float(request.form.get('end_term') or 0)
+        total, average=calc_result(midterm, end_term)
         duplicate=conn.execute('''SELECT id FROM results WHERE id<>? AND student_id=?
                                   AND lower(trim(subject))=lower(trim(?)) AND grade=? AND term=? AND academic_year=?''',
                                (result_id, result['student_id'], subject, grade, term, year)).fetchone()
         if duplicate:
             conn.close(); flash('Another result already exists for this pupil, subject, term and year. Delete the duplicate or edit that record.', 'warning')
             return redirect(url_for('edit_result', result_id=result_id))
-        conn.execute('''UPDATE results SET subject=?, grade=?, term=?, academic_year=?, test1=?, test2=?, end_term=?,
+        conn.execute('''UPDATE results SET subject=?, grade=?, term=?, academic_year=?, midterm=?, test1=0, test2=0, end_term=?,
                         total=?, average=?, comment=?, entered_by=?, entered_at=? WHERE id=?''',
-                     (subject, grade, term, year, test1, test2, end_term, total, average,
-                      request.form.get('comment','').strip(), session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M'), result_id))
+                     (subject, grade, term, year, midterm, end_term, total, average,
+                      automatic_result_comment(average), session['full_name'], datetime.now().strftime('%Y-%m-%d %H:%M'), result_id))
         conn.commit(); conn.close(); flash('Result updated successfully.', 'success')
         return redirect(url_for('results', grade=grade, term=term))
     conn.close(); return render_template('edit_result.html', result=result)
@@ -2225,12 +2288,12 @@ def student_results():
     if session.get('role') == 'student' and is_student_results_active():
         user = conn.execute('SELECT * FROM users WHERE id=?', (session['user_id'],)).fetchone()
         student = conn.execute('SELECT * FROM students WHERE student_number=?', (user['student_number'],)).fetchone() if user and user['student_number'] else None
-        rows = conn.execute('SELECT * FROM results WHERE student_id=? ORDER BY academic_year DESC, term, subject', (student['id'],)).fetchall() if student else []
+        rows = get_student_result_rows(conn, student['id']) if student else []
         conn.close(); return render_template('student_results.html', student=student, results=rows, students=[])
     if session.get('role') in ['teacher','headteacher','deputy_headteacher','hr'] or session.get('role','').startswith('hod_'):
         students_list=conn.execute('SELECT * FROM students ORDER BY grade, class_name, full_name').fetchall()
         student = conn.execute('SELECT * FROM students WHERE id=?', (selected_student_id,)).fetchone() if selected_student_id else None
-        rows = conn.execute('SELECT * FROM results WHERE student_id=? ORDER BY academic_year DESC, term, subject', (selected_student_id,)).fetchall() if selected_student_id else []
+        rows = get_student_result_rows(conn, selected_student_id) if selected_student_id else []
         conn.close(); return render_template('student_results.html', student=student, results=rows, students=students_list)
     conn.close(); flash('You are not allowed to access that page.', 'danger'); return redirect(url_for('dashboard'))
 
@@ -2266,9 +2329,7 @@ def pupil_results_lookup():
 
         if name_matches:
             student = candidate
-            rows = conn.execute('''SELECT * FROM results WHERE student_id=?
-                                   ORDER BY academic_year DESC, term, subject''',
-                                (student['id'],)).fetchall()
+            rows = get_student_result_rows(conn, student['id'])
         conn.close()
         record_result_lookup_attempt(name_matches)
 
@@ -2293,7 +2354,7 @@ def result_analysis():
     if session.get('role') == 'student' and is_student_results_active():
         user = conn.execute('SELECT * FROM users WHERE id=?', (session['user_id'],)).fetchone()
         student = conn.execute('SELECT * FROM students WHERE student_number=?', (user['student_number'],)).fetchone() if user and user['student_number'] else None
-        rows = conn.execute('SELECT * FROM results WHERE student_id=? ORDER BY academic_year DESC, term, subject', (student['id'],)).fetchall() if student else []
+        rows = get_student_result_rows(conn, student['id']) if student else []
         analysis = analyse_results(rows)
         conn.close()
         return render_template('result_analysis.html', student=student, rows=rows, analysis=analysis, students=[], selected_student_id='', selected_grade='', selected_term='', selected_year='', subject_summary=[], grade_summary=[])
@@ -2317,7 +2378,7 @@ def result_analysis():
     rows = conn.execute(query, params).fetchall()
     selected_student = conn.execute('SELECT * FROM students WHERE id=?', (selected_student_id,)).fetchone() if selected_student_id else None
     analysis = analyse_results(rows)
-    subject_summary = conn.execute('''SELECT subject, COUNT(*) AS entries, ROUND(AVG(average),2) AS avg_mark, ROUND(AVG(test1),2) AS avg_test1, ROUND(AVG(test2),2) AS avg_test2, ROUND(AVG(end_term),2) AS avg_end_term
+    subject_summary = conn.execute('''SELECT subject, COUNT(*) AS entries, ROUND(AVG(average),2) AS avg_mark, ROUND(AVG(midterm),2) AS avg_midterm, ROUND(AVG(end_term),2) AS avg_end_term
                                       FROM results GROUP BY subject ORDER BY subject''').fetchall()
     grade_summary = conn.execute('''SELECT grade, COUNT(*) AS entries, ROUND(AVG(average),2) AS avg_mark
                                     FROM results GROUP BY grade ORDER BY grade''').fetchall()
@@ -2334,7 +2395,7 @@ def download_result_analysis():
     selected_term = request.args.get('term','')
     selected_year = request.args.get('academic_year','')
     conn = get_db()
-    query = """SELECT students.student_number, students.full_name, students.class_name, results.grade, results.subject, results.term, results.academic_year, results.test1, results.test2, results.end_term, results.total, results.average, results.comment, results.entered_by
+    query = """SELECT students.student_number, students.full_name, students.class_name, results.grade, results.subject, results.term, results.academic_year, results.midterm, results.end_term, results.total, results.average, results.comment, results.entered_by
                FROM results JOIN students ON results.student_id=students.id WHERE 1=1"""
     params=[]
     if selected_grade:
@@ -2349,12 +2410,65 @@ def download_result_analysis():
 
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Pupil Number','Pupil Name','Class','Grade','Subject','Term','Academic Year','Test 1','Test 2','End Term','Total','Average','Comment','Entered By'])
+    writer.writerow(['Pupil Number','Pupil Name','Class','Grade','Subject','Term','Academic Year','Midterm Test','End Term','Total','Average','Grade','Comment','Entered By'])
     for r in rows:
-        writer.writerow([r['student_number'], r['full_name'], r['class_name'], r['grade'], r['subject'], r['term'], r['academic_year'], r['test1'], r['test2'], r['end_term'], r['total'], r['average'], r['comment'], r['entered_by']])
+        writer.writerow([r['student_number'], r['full_name'], r['class_name'], r['grade'], r['subject'], r['term'], r['academic_year'], r['midterm'], r['end_term'], r['total'], r['average'], result_grade(r['average'], r['grade']), r['comment'], r['entered_by']])
     data = BytesIO(output.getvalue().encode('utf-8'))
     data.seek(0)
     return send_file(data, mimetype='text/csv', as_attachment=True, download_name='student_result_analysis.csv')
+
+
+@app.route('/class-attendance', methods=['GET', 'POST'])
+@login_required
+@roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+def class_attendance():
+    conn = get_db()
+    selected_grade = request.values.get('grade', '').strip()
+    selected_class = request.values.get('class_name', '').strip()
+    attendance_date = request.values.get('attendance_date', datetime.now().strftime('%Y-%m-%d'))
+    selected_term = request.values.get('term', TERMS[0])
+    academic_year = request.values.get('academic_year', str(datetime.now().year)).strip()
+    role = session.get('role')
+    params = []
+    query = 'SELECT * FROM students WHERE 1=1'
+    if role == 'teacher':
+        query += ' AND lower(trim(class_teacher))=lower(trim(?))'
+        params.append(session.get('full_name', ''))
+    if selected_grade:
+        query += ' AND grade=?'; params.append(selected_grade)
+    if selected_class:
+        query += ' AND class_name=?'; params.append(selected_class)
+    query += ' ORDER BY grade, class_name, full_name'
+    pupils = conn.execute(query, params).fetchall()
+    allowed_ids = {str(p['id']) for p in pupils}
+    if request.method == 'POST':
+        if selected_term not in TERMS:
+            conn.close(); flash('Select a valid term.', 'danger'); return redirect(url_for('class_attendance'))
+        saved = 0
+        for pupil_id in allowed_ids:
+            status = request.form.get(f'status_{pupil_id}')
+            if status not in {'Present', 'Absent'}:
+                continue
+            conn.execute('''INSERT INTO attendance(student_id, attendance_date, term, academic_year, status, marked_by, marked_at)
+                            VALUES(?,?,?,?,?,?,?)
+                            ON CONFLICT(student_id, attendance_date) DO UPDATE SET term=excluded.term,
+                            academic_year=excluded.academic_year, status=excluded.status,
+                            marked_by=excluded.marked_by, marked_at=excluded.marked_at''',
+                         (pupil_id, attendance_date, selected_term, academic_year, status,
+                          session.get('full_name'), datetime.now().strftime('%Y-%m-%d %H:%M')))
+            saved += 1
+        conn.commit(); conn.close()
+        flash(f'Attendance saved for {saved} pupil(s).', 'success')
+        return redirect(url_for('class_attendance', grade=selected_grade, class_name=selected_class,
+                                attendance_date=attendance_date, term=selected_term, academic_year=academic_year))
+    existing = {str(r['student_id']): r['status'] for r in conn.execute(
+        'SELECT student_id,status FROM attendance WHERE attendance_date=?', (attendance_date,)).fetchall()}
+    classes = conn.execute("SELECT DISTINCT class_name FROM students WHERE class_name!='' ORDER BY class_name").fetchall()
+    conn.close()
+    return render_template('class_attendance.html', pupils=pupils, existing=existing,
+                           selected_grade=selected_grade, selected_class=selected_class,
+                           attendance_date=attendance_date, selected_term=selected_term,
+                           academic_year=academic_year, classes=classes)
 
 
 @app.route('/student-portal-control', methods=['GET','POST'])
@@ -2393,7 +2507,7 @@ def download_my_result_pdf():
         student = conn.execute('SELECT * FROM students WHERE id=?', (student_id,)).fetchone() if student_id else None
     if not student:
         conn.close(); flash('Pupil record not found.', 'danger'); return redirect(url_for('student_results'))
-    rows = conn.execute('SELECT * FROM results WHERE student_id=? ORDER BY academic_year DESC, term, subject', (student['id'],)).fetchall()
+    rows = get_student_result_rows(conn, student['id'])
     analysis = analyse_results(rows)
     conn.execute('''INSERT INTO result_download_logs(student_id, student_number, student_name, grade, class_name, downloaded_by, downloader_role, downloaded_at)
                     VALUES(?,?,?,?,?,?,?,?)''',
@@ -2419,13 +2533,13 @@ def download_my_result_pdf():
     t.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.4,colors.grey),('BACKGROUND',(0,0),(0,-1),colors.lightgrey),('BACKGROUND',(2,0),(2,-1),colors.lightgrey),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),('FONTNAME',(2,0),(2,-1),'Helvetica-Bold')]))
     elements.append(t)
     elements.append(Spacer(1, 0.4*cm))
-    data = [['Subject','Term','Year','Test 1','Test 2','End Term','Total','Average','Comment']]
+    data = [['Subject','Term','Year','Midterm','End Term','Average','Grade','Present','Absent','Comment']]
     for r in rows:
-        data.append([r['subject'], r['term'], r['academic_year'], str(r['test1']), str(r['test2']), str(r['end_term']), str(r['total']), str(r['average']), Paragraph(r['comment'] or '', normal)])
+        data.append([r['subject'], r['term'], r['academic_year'], str(r['midterm']), str(r['end_term']), str(r['average']), result_grade(r['average'], r['grade']), str(r['attendance_present']), str(r['attendance_absent']), Paragraph(r['comment'] or '', normal)])
     if len(data) == 1:
-        data.append(['No results uploaded yet.','','','','','','','',''])
-    table = Table(data, repeatRows=1, colWidths=[2.5*cm, 1.7*cm, 1.7*cm, 1.5*cm, 1.5*cm, 1.8*cm, 1.5*cm, 1.7*cm, 3.8*cm])
-    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.35,colors.grey),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#d9eaf7')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('ALIGN',(3,1),(7,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'TOP'),('FONTSIZE',(0,0),(-1,-1),8)]))
+        data.append(['No results uploaded yet.','','','','','','','','',''])
+    table = Table(data, repeatRows=1, colWidths=[2.3*cm, 1.4*cm, 1.3*cm, 1.4*cm, 1.5*cm, 1.4*cm, 2.2*cm, 1.1*cm, 1.1*cm, 3.4*cm])
+    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.35,colors.grey),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#d9eaf7')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('ALIGN',(3,1),(8,-1),'CENTER'),('VALIGN',(0,0),(-1,-1),'TOP'),('FONTSIZE',(0,0),(-1,-1),7)]))
     elements.append(table)
     elements.append(Spacer(1, 0.4*cm))
     summary = [['Result Analysis','Value'], ['Overall Average', f"{analysis['overall_average']}%"], ['Best Subject', f"{analysis['best_subject']} ({analysis['best_average']}%)"], ['Weakest Subject', f"{analysis['weakest_subject']} ({analysis['weakest_average']}%)"], ['Status', analysis['status']]]

@@ -1,0 +1,25 @@
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 16
+
+RESULTS AND ATTENDANCE UPGRADE
+
+1. Test 1 and Test 2 have been removed from result entry and display.
+2. Results now use Midterm Test and End-of-Term Test.
+3. The result average is calculated automatically from the two assessments.
+4. Grade 10, Grade 11 and Grade 12 use the 1-9 Distinction/Merit/Credit/Satisfactory/Unsatisfactory grading scale.
+5. Form 1, Form 2, Form 3 and Form 4 use Outstanding/Advanced/Basic/Satisfactory/Unsatisfactory grading.
+6. Teacher comments are automatic:
+   75-100 Excellent performance
+   50-74 Good performance
+   40-49 Can do better
+   0-39 Fail
+7. Class teachers can mark pupils Present or Absent by date, term and academic year.
+8. Attendance Present and Absent totals appear in online results and pupil PDF reports.
+9. Existing result records are migrated safely when the new midterm field is created.
+10. Existing pupil, staff, result and upload records on /var/data are preserved.
+
+INSTALLATION
+
+- Upload all files inside kafubu_security_backup_upgrade to the GitHub repository root.
+- Replace files with the same names.
+- Do not upload or replace school.db.
+- On Render use Manual Deploy > Clear build cache & deploy.
