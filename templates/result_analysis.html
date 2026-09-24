@@ -2,7 +2,7 @@
 {% block content %}
 <section class="page">
   <h2>{% if session.role == 'student' %}My Result Analysis{% else %}Pupil Result Analysis{% endif %}</h2>
-  <p>This page analyses Test 1, Test 2 and End Term marks, then shows averages, strongest subject, weakest subject and pass/fail summary.</p>
+  <p>This page analyses Midterm Test and End-of-Term Test marks, then shows averages, strongest subject, weakest subject and performance summary.</p>
 
   {% if students %}
   <form method="get" class="form-card wide">
@@ -52,16 +52,15 @@
   <h3>Assessment Average Analysis</h3>
   <table>
     <tr><th>Assessment</th><th>Average Mark</th></tr>
-    <tr><td>Test 1 Average</td><td>{{ analysis.average_test1 }}%</td></tr>
-    <tr><td>Test 2 Average</td><td>{{ analysis.average_test2 }}%</td></tr>
+    <tr><td>Midterm Test Average</td><td>{{ analysis.average_midterm }}%</td></tr>
     <tr><td>End Term Average</td><td>{{ analysis.average_end_term }}%</td></tr>
   </table>
 
   {% if subject_summary %}
   <h3>Subject Summary</h3>
   <table>
-    <tr><th>Subject</th><th>Entries</th><th>Test 1 Avg</th><th>Test 2 Avg</th><th>End Term Avg</th><th>Overall Avg</th></tr>
-    {% for s in subject_summary %}<tr><td>{{ s.subject }}</td><td>{{ s.entries }}</td><td>{{ s.avg_test1 }}</td><td>{{ s.avg_test2 }}</td><td>{{ s.avg_end_term }}</td><td>{{ s.avg_mark }}</td></tr>{% endfor %}
+    <tr><th>Subject</th><th>Entries</th><th>Midterm Avg</th><th>End Term Avg</th><th>Overall Avg</th></tr>
+    {% for s in subject_summary %}<tr><td>{{ s.subject }}</td><td>{{ s.entries }}</td><td>{{ s.avg_midterm }}</td><td>{{ s.avg_end_term }}</td><td>{{ s.avg_mark }}</td></tr>{% endfor %}
   </table>
   {% endif %}
 
@@ -75,9 +74,9 @@
 
   <h3>Detailed Results Used in This Analysis</h3>
   <table>
-    <tr><th>Pupil</th><th>Subject</th><th>Grade</th><th>Term</th><th>Year</th><th>Test 1</th><th>Test 2</th><th>End Term</th><th>Total</th><th>Average</th><th>Comment</th></tr>
+    <tr><th>Pupil</th><th>Subject</th><th>Grade</th><th>Term</th><th>Year</th><th>Midterm</th><th>End Term</th><th>Average</th><th>Result Grade</th><th>Comment</th></tr>
     {% for r in rows %}
-      <tr><td>{% if r.full_name is defined %}{{ r.student_number }} - {{ r.full_name }}{% else %}{{ student.full_name if student else '' }}{% endif %}</td><td>{{ r.subject }}</td><td>{{ r.grade }}</td><td>{{ r.term }}</td><td>{{ r.academic_year }}</td><td>{{ r.test1 }}</td><td>{{ r.test2 }}</td><td>{{ r.end_term }}</td><td>{{ r.total }}</td><td>{{ r.average }}</td><td>{{ r.comment }}</td></tr>
+      <tr><td>{% if r.full_name is defined %}{{ r.student_number }} - {{ r.full_name }}{% else %}{{ student.full_name if student else '' }}{% endif %}</td><td>{{ r.subject }}</td><td>{{ r.grade }}</td><td>{{ r.term }}</td><td>{{ r.academic_year }}</td><td>{{ r.midterm }}</td><td>{{ r.end_term }}</td><td>{{ r.average }}</td><td>{{ result_grade(r.average, r.grade) }}</td><td>{{ r.comment }}</td></tr>
     {% else %}
       <tr><td colspan="11">No results available for analysis.</td></tr>
     {% endfor %}

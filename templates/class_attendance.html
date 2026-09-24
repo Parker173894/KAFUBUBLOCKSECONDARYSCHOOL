@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block content %}
+<section class="page"><h2>Class Attendance</h2>
+<p>Class teachers mark every pupil as present or absent. Attendance totals automatically appear on pupil results for the selected term and year.</p>
+<form method="get" class="form-card wide">
+<label>Grade/Form</label><select name="grade"><option value="">All assigned grades</option>{% for g in GRADES %}<option value="{{ g }}" {% if selected_grade==g %}selected{% endif %}>{{ g }}</option>{% endfor %}</select>
+<label>Class</label><select name="class_name"><option value="">All assigned classes</option>{% for c in classes %}<option value="{{ c.class_name }}" {% if selected_class==c.class_name %}selected{% endif %}>{{ c.class_name }}</option>{% endfor %}</select>
+<label>Date</label><input type="date" name="attendance_date" value="{{ attendance_date }}" required>
+<label>Term</label><select name="term">{% for t in TERMS %}<option value="{{ t }}" {% if selected_term==t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select>
+<label>Academic Year</label><input name="academic_year" value="{{ academic_year }}" required>
+<button class="btn">Load Class</button>
+</form>
+{% if pupils %}<form method="post" class="form-card wide">
+<input type="hidden" name="grade" value="{{ selected_grade }}"><input type="hidden" name="class_name" value="{{ selected_class }}"><input type="hidden" name="attendance_date" value="{{ attendance_date }}"><input type="hidden" name="term" value="{{ selected_term }}"><input type="hidden" name="academic_year" value="{{ academic_year }}">
+<table><tr><th>Student Number</th><th>Pupil Name</th><th>Grade</th><th>Class</th><th>Attendance</th></tr>
+{% for p in pupils %}<tr><td>{{ p.student_number }}</td><td>{{ p.full_name }}</td><td>{{ p.grade }}</td><td>{{ p.class_name }}</td><td><label><input type="radio" name="status_{{ p.id }}" value="Present" {% if existing.get(p.id|string,'Present')=='Present' %}checked{% endif %}> Present</label> <label><input type="radio" name="status_{{ p.id }}" value="Absent" {% if existing.get(p.id|string)=='Absent' %}checked{% endif %}> Absent</label></td></tr>{% endfor %}</table>
+<button class="btn" type="submit">Save Attendance</button></form>
+{% else %}<div class="notice warning">No pupils were found. Subject teachers only see pupils whose Class Teacher field matches their profile name.</div>{% endif %}
+</section>{% endblock %}
