@@ -1,0 +1,27 @@
+KAFUBU BLOCK PORTAL - VERSION 16.1 CORRECTION
+
+The live website is still using old application/template files.
+
+UPLOAD TO THE GITHUB REPOSITORY ROOT
+1. app.py -> replace the existing root app.py
+
+UPLOAD INSIDE THE EXISTING GITHUB templates FOLDER
+2. results.html
+3. edit_result.html
+4. student_results.html
+5. pupil_results_lookup.html
+6. result_analysis.html
+7. dashboard.html
+8. class_attendance.html (new file)
+
+Do not upload the ZIP itself.
+Do not upload school.db.
+Do not place the v16_1_midterm_attendance_fix folder in GitHub.
+
+After committing all files:
+Render > Manual Deploy > Clear build cache & deploy.
+
+When live, sign out and sign in again. Open Add / Manage Pupil Results.
+The green notice must say: Version 16.1 Midterm and Attendance Update is active.
+The form must show Midterm Test Marks and must not show Test 1 or Test 2.
+Dashboard must show Mark Class Attendance.
