@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block content %}
+<section class="page"><h2>Assign Class Teachers</h2>
+<div class="notice success"><b>Profile-based assignment:</b> select an active teacher profile. After saving, that teacher immediately receives access to mark attendance for the assigned grade and class.</div>
+<form method="post" class="form-card wide">
+  <input type="hidden" name="action" value="assign">
+  <label>Grade/Form</label><select name="grade" required><option value="">Select Grade/Form</option>{% for g in GRADES %}<option value="{{ g }}">{{ g }}</option>{% endfor %}</select>
+  <label>Class</label><select name="class_name" required><option value="">Select Class</option>{% for c in classes %}<option value="{{ c.class_name }}">{{ c.grade }} {{ c.class_name }} ({{ c.pupil_count }} pupils)</option>{% endfor %}</select>
+  <label>Class Teacher Profile</label><select name="teacher_user_id" required><option value="">Select Active Teacher</option>{% for t in teachers %}<option value="{{ t.id }}">{{ t.full_name }} — {{ t.position }}{% if t.department %} ({{ DEPARTMENTS.get(t.department,t.department) }}){% endif %}</option>{% endfor %}</select>
+  <button class="btn" type="submit">Assign Class Teacher</button>
+</form>
+
+<h3>Current Class Teacher Assignments</h3>
+<table><tr><th>Grade/Form</th><th>Class</th><th>Class Teacher</th><th>Profile Username</th><th>Assigned By</th><th>Date</th><th>Action</th></tr>
+{% for a in assignments %}<tr><td>{{ a.grade }}</td><td>{{ a.class_name }}</td><td>{{ a.current_teacher_name }}</td><td>{{ a.username }}</td><td>{{ a.assigned_by }}</td><td>{{ a.assigned_at }}</td><td><form method="post" onsubmit="return confirm('Remove this class teacher assignment?')"><input type="hidden" name="action" value="remove"><input type="hidden" name="grade" value="{{ a.grade }}"><input type="hidden" name="class_name" value="{{ a.class_name }}"><button class="mini-btn" type="submit">Remove</button></form></td></tr>
+{% else %}<tr><td colspan="7">No class teachers have been assigned yet.</td></tr>{% endfor %}</table>
+</section>{% endblock %}

@@ -321,6 +321,17 @@ def init_db():
         FOREIGN KEY(student_id) REFERENCES students(id),
         UNIQUE(student_id, attendance_date)
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS class_teacher_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        grade TEXT NOT NULL,
+        class_name TEXT NOT NULL,
+        teacher_user_id INTEGER NOT NULL,
+        teacher_name TEXT NOT NULL,
+        assigned_by TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        FOREIGN KEY(teacher_user_id) REFERENCES users(id),
+        UNIQUE(grade, class_name)
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS result_download_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id INTEGER,
@@ -2431,6 +2442,78 @@ def download_result_analysis():
     return send_file(data, mimetype='text/csv', as_attachment=True, download_name='student_result_analysis.csv')
 
 
+@app.route('/assign-class-teachers', methods=['GET', 'POST'])
+@login_required
+@roles_required(*ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+def assign_class_teachers():
+    conn = get_db()
+    manager_role = session.get('role')
+    manager_department = ROLE_TO_DEPT.get(manager_role)
+    teacher_roles = ['teacher'] + list(ROLE_TO_DEPT.keys())
+    placeholders = ','.join('?' for _ in teacher_roles)
+    teacher_query = f'''SELECT id, full_name, username, role, department, position
+                        FROM users WHERE is_active=1 AND role IN ({placeholders})'''
+    teacher_params = list(teacher_roles)
+    if manager_department:
+        teacher_query += ' AND department=?'
+        teacher_params.append(manager_department)
+    teacher_query += ' ORDER BY full_name'
+    teachers = conn.execute(teacher_query, teacher_params).fetchall()
+    allowed_teacher_ids = {str(t['id']) for t in teachers}
+
+    if request.method == 'POST':
+        action = request.form.get('action', 'assign')
+        grade = request.form.get('grade', '').strip()
+        class_name = request.form.get('class_name', '').strip()
+        if grade not in GRADES or not class_name:
+            conn.close(); flash('Select a valid grade and class.', 'danger'); return redirect(url_for('assign_class_teachers'))
+        if action == 'remove':
+            old = conn.execute('SELECT * FROM class_teacher_assignments WHERE grade=? AND class_name=?', (grade, class_name)).fetchone()
+            if old:
+                old_teacher = conn.execute('SELECT department FROM users WHERE id=?', (old['teacher_user_id'],)).fetchone()
+                if manager_department and (not old_teacher or old_teacher['department'] != manager_department):
+                    conn.close(); flash('HODs can only remove assignments for teachers in their department.', 'danger'); return redirect(url_for('assign_class_teachers'))
+                conn.execute('DELETE FROM class_teacher_assignments WHERE id=?', (old['id'],))
+                conn.execute('UPDATE students SET class_teacher="" WHERE grade=? AND class_name=? AND class_teacher=?',
+                             (grade, class_name, old['teacher_name']))
+                conn.commit()
+                flash(f'Class teacher removed from {grade} {class_name}.', 'info')
+            else:
+                flash('No class teacher assignment was found.', 'warning')
+            conn.close(); return redirect(url_for('assign_class_teachers'))
+
+        teacher_user_id = request.form.get('teacher_user_id', '')
+        if teacher_user_id not in allowed_teacher_ids:
+            conn.close(); flash('Select an authorised active teacher profile.', 'danger'); return redirect(url_for('assign_class_teachers'))
+        class_exists = conn.execute('SELECT 1 FROM students WHERE grade=? AND class_name=? LIMIT 1', (grade, class_name)).fetchone()
+        if not class_exists:
+            conn.close(); flash('The selected grade and class combination has no registered pupils.', 'danger'); return redirect(url_for('assign_class_teachers'))
+        teacher = conn.execute('SELECT * FROM users WHERE id=? AND is_active=1', (teacher_user_id,)).fetchone()
+        assigned_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+        conn.execute('''INSERT INTO class_teacher_assignments(grade,class_name,teacher_user_id,teacher_name,assigned_by,assigned_at)
+                        VALUES(?,?,?,?,?,?)
+                        ON CONFLICT(grade,class_name) DO UPDATE SET teacher_user_id=excluded.teacher_user_id,
+                        teacher_name=excluded.teacher_name, assigned_by=excluded.assigned_by, assigned_at=excluded.assigned_at''',
+                     (grade, class_name, teacher['id'], teacher['full_name'], session.get('full_name'), assigned_at))
+        conn.execute('UPDATE students SET class_teacher=? WHERE grade=? AND class_name=?',
+                     (teacher['full_name'], grade, class_name))
+        conn.commit(); conn.close()
+        flash(f"{teacher['full_name']} is now the class teacher for {grade} {class_name} and can mark attendance immediately.", 'success')
+        return redirect(url_for('assign_class_teachers'))
+
+    assignments = conn.execute('''SELECT a.*, u.username, u.department, u.position, u.is_active,
+                                  u.full_name AS current_teacher_name
+                                  FROM class_teacher_assignments a
+                                  JOIN users u ON u.id=a.teacher_user_id
+                                  ORDER BY a.grade, a.class_name''').fetchall()
+    if manager_department:
+        assignments = [a for a in assignments if a['department'] == manager_department]
+    classes = conn.execute('''SELECT grade, class_name, COUNT(*) AS pupil_count FROM students
+                              WHERE class_name!='' GROUP BY grade,class_name ORDER BY grade,class_name''').fetchall()
+    conn.close()
+    return render_template('assign_class_teachers.html', teachers=teachers, assignments=assignments, classes=classes)
+
+
 @app.route('/class-attendance', methods=['GET', 'POST'])
 @login_required
 @roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
@@ -2445,8 +2528,11 @@ def class_attendance():
     params = []
     query = 'SELECT * FROM students WHERE 1=1'
     if role == 'teacher':
-        query += ' AND lower(trim(class_teacher))=lower(trim(?))'
-        params.append(session.get('full_name', ''))
+        query += ''' AND (EXISTS (SELECT 1 FROM class_teacher_assignments cta
+                                  WHERE cta.teacher_user_id=? AND cta.grade=students.grade AND cta.class_name=students.class_name)
+                         OR (NOT EXISTS (SELECT 1 FROM class_teacher_assignments legacy_cta WHERE legacy_cta.teacher_user_id=?)
+                             AND lower(trim(class_teacher))=lower(trim(?))))'''
+        params.extend([session.get('user_id'), session.get('user_id'), session.get('full_name', '')])
     if selected_grade:
         query += ' AND grade=?'; params.append(selected_grade)
     if selected_class:

@@ -69,6 +69,7 @@
       {% if session.role in ['headteacher','deputy_headteacher','hr'] %}<a class="btn" href="{{ url_for('student_records') }}">Pupil Registered Records / Total Pupils</a>{% endif %}
       <a class="btn" href="{{ url_for('results') }}">Add / Manage Pupil Results</a>
       <a class="btn" href="{{ url_for('class_attendance') }}">Mark Class Attendance</a>
+      {% if session.role.startswith('hod_') or session.role in ['headteacher','deputy_headteacher','hr'] %}<a class="btn" href="{{ url_for('assign_class_teachers') }}">Assign Class Teachers</a>{% endif %}
       <a class="btn" href="{{ url_for('student_results') }}">View Pupil Results</a>
       <a class="btn" href="{{ url_for('result_analysis') }}">Pupil Result Analysis</a>
       <a class="btn" href="{{ url_for('result_download_logs') }}">Result Download Records</a>
