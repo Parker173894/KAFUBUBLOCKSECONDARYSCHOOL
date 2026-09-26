@@ -1,0 +1,19 @@
+KAFUBU BLOCK PORTAL - VERSION 19 PUPIL ATTENDANCE DISPLAY
+
+UPLOAD TO THE GITHUB REPOSITORY ROOT
+1. app.py (replace the existing root app.py)
+
+UPLOAD INSIDE THE EXISTING GitHub templates FOLDER
+2. student_results.html (replace existing file)
+3. pupil_results_lookup.html (replace existing file)
+
+Do not upload school.db.
+Do not upload the ZIP file itself.
+
+After committing all three files:
+Render > Manual Deploy > Clear build cache & deploy.
+
+After deployment, sign out, sign in and press Ctrl+F5.
+Open View Pupil Results and select a pupil.
+The page must show Version 19 Pupil Attendance Display is active,
+Pupil Attendance Summary and Daily Attendance Record.

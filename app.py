@@ -1036,6 +1036,20 @@ def get_student_result_rows(conn, student_id, selected_term=''):
     return conn.execute(query, params).fetchall()
 
 
+def get_student_attendance(conn, student_id):
+    details = conn.execute('''SELECT attendance_date, term, academic_year, status, marked_by, marked_at
+                              FROM attendance WHERE student_id=?
+                              ORDER BY attendance_date DESC, id DESC''', (student_id,)).fetchall()
+    summary = conn.execute('''SELECT term, academic_year,
+                              SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END) AS present_count,
+                              SUM(CASE WHEN status='Absent' THEN 1 ELSE 0 END) AS absent_count,
+                              COUNT(*) AS total_days,
+                              ROUND(100.0 * SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END) / COUNT(*), 1) AS attendance_percent
+                              FROM attendance WHERE student_id=?
+                              GROUP BY academic_year, term ORDER BY academic_year DESC, term''', (student_id,)).fetchall()
+    return details, summary
+
+
 app.jinja_env.globals['result_grade'] = result_grade
 app.jinja_env.globals['automatic_result_comment'] = automatic_result_comment
 app.jinja_env.globals['attendance_percentage'] = attendance_percentage
@@ -2313,12 +2327,14 @@ def student_results():
         user = conn.execute('SELECT * FROM users WHERE id=?', (session['user_id'],)).fetchone()
         student = conn.execute('SELECT * FROM students WHERE student_number=?', (user['student_number'],)).fetchone() if user and user['student_number'] else None
         rows = get_student_result_rows(conn, student['id']) if student else []
-        conn.close(); return render_template('student_results.html', student=student, results=rows, students=[])
+        attendance_details, attendance_summary = get_student_attendance(conn, student['id']) if student else ([], [])
+        conn.close(); return render_template('student_results.html', student=student, results=rows, students=[], attendance_details=attendance_details, attendance_summary=attendance_summary)
     if session.get('role') in ['teacher','headteacher','deputy_headteacher','hr'] or session.get('role','').startswith('hod_'):
         students_list=conn.execute('SELECT * FROM students ORDER BY grade, class_name, full_name').fetchall()
         student = conn.execute('SELECT * FROM students WHERE id=?', (selected_student_id,)).fetchone() if selected_student_id else None
         rows = get_student_result_rows(conn, selected_student_id) if selected_student_id else []
-        conn.close(); return render_template('student_results.html', student=student, results=rows, students=students_list)
+        attendance_details, attendance_summary = get_student_attendance(conn, selected_student_id) if selected_student_id else ([], [])
+        conn.close(); return render_template('student_results.html', student=student, results=rows, students=students_list, attendance_details=attendance_details, attendance_summary=attendance_summary)
     conn.close(); flash('You are not allowed to access that page.', 'danger'); return redirect(url_for('dashboard'))
 
 
@@ -2328,6 +2344,8 @@ def pupil_results_lookup():
     portal_open = is_student_results_active()
     student = None
     rows = []
+    attendance_details = []
+    attendance_summary = []
 
     if request.method == 'POST':
         if not portal_open:
@@ -2354,6 +2372,7 @@ def pupil_results_lookup():
         if name_matches:
             student = candidate
             rows = get_student_result_rows(conn, student['id'])
+            attendance_details, attendance_summary = get_student_attendance(conn, student['id'])
         conn.close()
         record_result_lookup_attempt(name_matches)
 
@@ -2363,7 +2382,8 @@ def pupil_results_lookup():
         else:
             log_security_event('Pupil result lookup successful', username=student['student_number'], role='student')
 
-    return render_template('pupil_results_lookup.html', portal_open=portal_open, student=student, results=rows)
+    return render_template('pupil_results_lookup.html', portal_open=portal_open, student=student, results=rows,
+                           attendance_details=attendance_details, attendance_summary=attendance_summary)
 
 @app.route('/result-analysis')
 @login_required

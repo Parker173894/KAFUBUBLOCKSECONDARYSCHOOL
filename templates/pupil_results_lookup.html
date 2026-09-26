@@ -61,6 +61,16 @@
         </tbody>
       </table>
     </div>
+    <h3>Pupil Attendance Summary</h3>
+    <div class="result-table-wrap"><table><thead><tr><th>Term</th><th>Academic Year</th><th>Present</th><th>Absent</th><th>Total School Days</th><th>Attendance Percentage</th></tr></thead><tbody>
+      {% for a in attendance_summary %}<tr><td>{{ a.term }}</td><td>{{ a.academic_year }}</td><td>{{ a.present_count }}</td><td>{{ a.absent_count }}</td><td>{{ a.total_days }}</td><td>{{ a.attendance_percent }}%</td></tr>
+      {% else %}<tr><td colspan="6">No attendance has been marked for this pupil yet.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <h3>Daily Attendance Record</h3>
+    <div class="result-table-wrap"><table><thead><tr><th>Date</th><th>Term</th><th>Academic Year</th><th>Status</th></tr></thead><tbody>
+      {% for a in attendance_details %}<tr><td>{{ a.attendance_date }}</td><td>{{ a.term }}</td><td>{{ a.academic_year }}</td><td><b>{{ a.status }}</b></td></tr>
+      {% else %}<tr><td colspan="4">No daily attendance records available.</td></tr>{% endfor %}
+    </tbody></table></div>
   {% endif %}
 </section>
 {% endblock %}
