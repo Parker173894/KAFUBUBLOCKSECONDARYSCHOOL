@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page">
+  <h2>Download Class Results</h2>
+  <div class="notice success"><b>Version 20:</b> Download one PDF for every pupil in a selected grade/form, class, term and academic year.</div>
+  <p>The report includes pupil names and numbers, subject marks, automatic grades, teacher comments and attendance percentages.</p>
+
+  {% if available_grades %}
+    <form class="form-card wide" method="get" action="{{ url_for('download_class_results_pdf') }}">
+      <label for="grade">Grade/Form</label>
+      <select id="grade" name="grade" required>
+        <option value="">Select grade/form</option>
+        {% for grade in available_grades %}
+          <option value="{{ grade }}" {% if selected_grade == grade %}selected{% endif %}>{{ grade }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="class_name">Class</label>
+      <select id="class_name" name="class_name">
+        <option value="">All classes in selected grade</option>
+        {% for item in class_options %}
+          <option value="{{ item.class_name }}" data-grade="{{ item.grade }}" {% if selected_grade == item.grade and selected_class == item.class_name %}selected{% endif %}>
+            {{ item.class_name }}
+          </option>
+        {% endfor %}
+      </select>
+
+      <label for="term">Term</label>
+      <select id="term" name="term" required>
+        {% for term in TERMS %}
+          <option value="{{ term }}" {% if selected_term == term %}selected{% endif %}>{{ term }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="academic_year">Academic Year</label>
+      <input id="academic_year" name="academic_year" list="academic-years" value="{{ selected_year }}" maxlength="20" required>
+      <datalist id="academic-years">
+        {% for year in academic_years %}<option value="{{ year }}">{% endfor %}
+      </datalist>
+
+      <button class="btn" type="submit">Download All Results PDF</button>
+    </form>
+    <div class="notice">
+      Leave <b>Class</b> on “All classes in selected grade” to download the whole grade. Choose one class to download only that class.
+      {% if session.role == 'teacher' %}Only classes assigned to your teacher profile are available.{% endif %}
+    </div>
+  {% else %}
+    <div class="notice warning">
+      No classes are available. Register pupils first{% if session.role == 'teacher' %}, or ask HR, the Headteacher, Deputy Headteacher or an HOD to assign your teacher profile to a class{% endif %}.
+    </div>
+  {% endif %}
+  <p><a class="btn secondary" href="{{ url_for('dashboard') }}">Back to Dashboard</a></p>
+</section>
+
+<script>
+(function () {
+  const grade = document.getElementById('grade');
+  const classSelect = document.getElementById('class_name');
+  if (!grade || !classSelect) return;
+
+  function filterClasses() {
+    const selectedGrade = grade.value;
+    let selectedStillVisible = classSelect.value === '';
+    Array.from(classSelect.options).forEach(function (option, index) {
+      if (index === 0) return;
+      const visible = option.dataset.grade === selectedGrade;
+      option.hidden = !visible;
+      option.disabled = !visible;
+      if (visible && option.selected) selectedStillVisible = true;
+    });
+    if (!selectedStillVisible) classSelect.value = '';
+  }
+
+  grade.addEventListener('change', filterClasses);
+  filterClasses();
+}());
+</script>
+{% endblock %}

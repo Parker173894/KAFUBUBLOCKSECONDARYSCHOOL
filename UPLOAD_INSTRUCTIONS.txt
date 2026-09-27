@@ -1,19 +1,51 @@
-KAFUBU BLOCK PORTAL - VERSION 19 PUPIL ATTENDANCE DISPLAY
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 20
+UPLOAD ONLY THESE THREE FILES
 
-UPLOAD TO THE GITHUB REPOSITORY ROOT
-1. app.py (replace the existing root app.py)
+NEW FUNCTION
+The authorised staff member can choose a Grade/Form, optional Class, Term and Academic Year, then download one PDF containing the results of every pupil in that selection. The PDF also shows automatic grades, comments and attendance percentages.
 
-UPLOAD INSIDE THE EXISTING GitHub templates FOLDER
-2. student_results.html (replace existing file)
-3. pupil_results_lookup.html (replace existing file)
+FILE 1: app.py
+GitHub location: repository root
 
-Do not upload school.db.
-Do not upload the ZIP file itself.
+1. Open the Kafubublock GitHub repository.
+2. Open app.py.
+3. Click the pencil/Edit button.
+4. Select all the old text and delete it.
+5. Open the new app.py from this package, copy all its text and paste it into GitHub.
+6. Click Commit changes.
 
-After committing all three files:
-Render > Manual Deploy > Clear build cache & deploy.
+FILE 2: dashboard.html
+GitHub location: templates/dashboard.html
 
-After deployment, sign out, sign in and press Ctrl+F5.
-Open View Pupil Results and select a pupil.
-The page must show Version 19 Pupil Attendance Display is active,
-Pupil Attendance Summary and Daily Attendance Record.
+1. Return to the repository root.
+2. Open templates, then dashboard.html.
+3. Click the pencil/Edit button.
+4. Replace all the old text with the text from templates/dashboard.html in this package.
+5. Click Commit changes.
+
+FILE 3: download_class_results.html
+GitHub location: templates/download_class_results.html
+
+1. Return to the templates folder in GitHub.
+2. Click Add file, then Create new file.
+3. In the filename box enter exactly: download_class_results.html
+4. Copy all the text from templates/download_class_results.html in this package and paste it into GitHub.
+5. Click Commit changes.
+
+DEPLOY ON RENDER
+
+1. Open the Render service.
+2. Wait for automatic deployment, or choose Manual Deploy, then Deploy latest commit.
+3. Wait until the service shows Live.
+4. Do not delete the persistent disk and do not replace /var/data.
+
+HOW TO USE IT
+
+1. Log in as Headteacher, Deputy Headteacher, HR, HOD or an assigned Class Teacher.
+2. Open Dashboard.
+3. Click Download Class / Grade Results.
+4. Choose Grade/Form, Class, Term and Academic Year.
+5. Leave Class on All classes in selected grade to download the entire grade.
+6. Click Download All Results PDF.
+
+If GitHub does not show the new page after deployment, use Render: Manual Deploy, Clear build cache & deploy.

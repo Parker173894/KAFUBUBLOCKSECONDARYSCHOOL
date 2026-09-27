@@ -8,6 +8,7 @@ import hashlib
 import shutil
 import tempfile
 import zipfile
+from xml.sax.saxutils import escape
 from email.message import EmailMessage
 from io import StringIO, BytesIO
 from datetime import datetime, timedelta
@@ -18,10 +19,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -2588,6 +2589,242 @@ def class_attendance():
                            selected_grade=selected_grade, selected_class=selected_class,
                            attendance_date=attendance_date, selected_term=selected_term,
                            academic_year=academic_year, classes=classes)
+
+
+def class_result_download_options(conn):
+    """Return grade/class choices the current staff member may download."""
+    if session.get('role') == 'teacher':
+        assigned = conn.execute('''SELECT DISTINCT grade, class_name
+                                   FROM class_teacher_assignments
+                                   WHERE teacher_user_id=? AND class_name!=''
+                                   ORDER BY grade, class_name''',
+                                (session.get('user_id'),)).fetchall()
+        if assigned:
+            return assigned
+        return conn.execute('''SELECT DISTINCT grade, class_name FROM students
+                               WHERE class_name!='' AND lower(trim(class_teacher))=lower(trim(?))
+                               ORDER BY grade, class_name''',
+                            (session.get('full_name', ''),)).fetchall()
+    return conn.execute('''SELECT DISTINCT grade, class_name FROM students
+                           WHERE class_name!='' ORDER BY grade, class_name''').fetchall()
+
+
+@app.route('/download-class-results')
+@login_required
+@roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+def download_class_results():
+    """Show filters for one PDF containing every pupil in a grade or class."""
+    conn = get_db()
+    class_options = class_result_download_options(conn)
+    academic_years = [row['academic_year'] for row in conn.execute(
+        '''SELECT DISTINCT academic_year FROM results
+           WHERE academic_year IS NOT NULL AND trim(academic_year)!=''
+           ORDER BY academic_year DESC''').fetchall()]
+    conn.close()
+    current_year = str(datetime.now().year)
+    if current_year not in academic_years:
+        academic_years.insert(0, current_year)
+    available_grades = [grade for grade in GRADES if any(row['grade'] == grade for row in class_options)]
+    return render_template(
+        'download_class_results.html',
+        class_options=class_options,
+        available_grades=available_grades,
+        academic_years=academic_years,
+        selected_grade=request.args.get('grade', '').strip(),
+        selected_class=request.args.get('class_name', '').strip(),
+        selected_term=request.args.get('term', TERMS[0]).strip(),
+        selected_year=request.args.get('academic_year', current_year).strip(),
+    )
+
+
+@app.route('/download-class-results-pdf')
+@login_required
+@roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
+def download_class_results_pdf():
+    """Create one class/grade PDF with results and attendance for every pupil."""
+    selected_grade = request.args.get('grade', '').strip()
+    selected_class = request.args.get('class_name', '').strip()
+    selected_term = request.args.get('term', '').strip()
+    academic_year = request.args.get('academic_year', '').strip()
+
+    if selected_grade not in GRADES:
+        flash('Select a valid grade or form.', 'danger')
+        return redirect(url_for('download_class_results'))
+    if selected_term not in TERMS:
+        flash('Select a valid term.', 'danger')
+        return redirect(url_for('download_class_results', grade=selected_grade, class_name=selected_class))
+    if not academic_year or len(academic_year) > 20:
+        flash('Enter a valid academic year.', 'danger')
+        return redirect(url_for('download_class_results', grade=selected_grade, class_name=selected_class, term=selected_term))
+
+    conn = get_db()
+    class_options = class_result_download_options(conn)
+    allowed_pairs = {(row['grade'], row['class_name']) for row in class_options}
+    role = session.get('role')
+
+    if selected_class and (selected_grade, selected_class) not in allowed_pairs:
+        conn.close()
+        flash('That class was not found or is not assigned to your profile.', 'danger')
+        return redirect(url_for('download_class_results', grade=selected_grade, term=selected_term,
+                                academic_year=academic_year))
+
+    permitted_classes = sorted(class_name for grade, class_name in allowed_pairs if grade == selected_grade)
+    if role == 'teacher' and not permitted_classes:
+        conn.close()
+        flash('You are not assigned as class teacher for the selected grade.', 'danger')
+        return redirect(url_for('download_class_results'))
+
+    query = '''SELECT students.id AS student_id, students.student_number, students.full_name,
+                      students.grade AS student_grade, students.class_name, students.class_teacher,
+                      results.id AS result_id, results.subject, results.midterm, results.end_term,
+                      results.average, results.comment,
+                      (SELECT COUNT(*) FROM attendance a
+                       WHERE a.student_id=students.id AND a.term=? AND a.academic_year=?
+                         AND a.status='Present') AS attendance_present,
+                      (SELECT COUNT(*) FROM attendance a
+                       WHERE a.student_id=students.id AND a.term=? AND a.academic_year=?
+                         AND a.status='Absent') AS attendance_absent
+               FROM students
+               LEFT JOIN results ON results.student_id=students.id
+                    AND results.term=? AND results.academic_year=? AND results.grade=?
+               WHERE students.grade=?'''
+    params = [selected_term, academic_year, selected_term, academic_year,
+              selected_term, academic_year, selected_grade, selected_grade]
+    if selected_class:
+        query += ' AND students.class_name=?'
+        params.append(selected_class)
+    elif role == 'teacher':
+        placeholders = ','.join('?' for _ in permitted_classes)
+        query += f' AND students.class_name IN ({placeholders})'
+        params.extend(permitted_classes)
+    query += ' ORDER BY students.class_name, students.full_name, results.subject'
+    rows = conn.execute(query, params).fetchall()
+
+    if not rows:
+        conn.close()
+        flash('No pupils were found for the selected grade and class.', 'warning')
+        return redirect(url_for('download_class_results', grade=selected_grade, class_name=selected_class,
+                                term=selected_term, academic_year=academic_year))
+
+    downloaded_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    logged_students = set()
+    for row in rows:
+        if row['student_id'] in logged_students:
+            continue
+        logged_students.add(row['student_id'])
+        conn.execute('''INSERT INTO result_download_logs(
+                        student_id, student_number, student_name, grade, class_name,
+                        downloaded_by, downloader_role, downloaded_at)
+                        VALUES(?,?,?,?,?,?,?,?)''',
+                     (row['student_id'], row['student_number'], row['full_name'], selected_grade,
+                      row['class_name'], session.get('full_name'), role, downloaded_at))
+    conn.commit()
+    conn.close()
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=0.7*cm,
+        leftMargin=0.7*cm,
+        topMargin=0.7*cm,
+        bottomMargin=0.7*cm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('ClassResultsTitle', parent=styles['Title'], alignment=1,
+                                 fontSize=15, leading=18, spaceAfter=4)
+    subtitle_style = ParagraphStyle('ClassResultsSubtitle', parent=styles['Heading2'], alignment=1,
+                                    fontSize=10, leading=13, spaceAfter=6)
+    class_style = ParagraphStyle('ClassResultsClass', parent=styles['Heading3'], fontSize=10,
+                                 leading=12, textColor=colors.HexColor('#173f35'), spaceAfter=4)
+    cell_style = ParagraphStyle('ClassResultsCell', parent=styles['Normal'], fontSize=6.5,
+                                leading=8, wordWrap='CJK')
+    elements = [Paragraph('KAFUBU BLOCK SECONDARY SCHOOL', title_style)]
+    class_label = selected_class or 'All Classes'
+    elements.append(Paragraph(
+        f'{escape(selected_grade)} RESULTS — {escape(class_label)} — {escape(selected_term)} — {escape(academic_year)}',
+        subtitle_style,
+    ))
+    elements.append(Paragraph(
+        f'Generated by {escape(session.get("full_name", ""))} on {datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        ParagraphStyle('GeneratedBy', parent=cell_style, alignment=1, spaceAfter=8),
+    ))
+
+    class_names = []
+    for row in rows:
+        if row['class_name'] not in class_names:
+            class_names.append(row['class_name'])
+
+    for class_index, class_name in enumerate(class_names):
+        class_rows = [row for row in rows if row['class_name'] == class_name]
+        pupil_numbers = []
+        for row in class_rows:
+            if row['student_id'] not in pupil_numbers:
+                pupil_numbers.append(row['student_id'])
+        elements.append(Paragraph(
+            f'{escape(selected_grade)} — Class {escape(class_name or "Not specified")} — {len(pupil_numbers)} pupil(s)',
+            class_style,
+        ))
+        data = [['No.', 'Pupil No.', 'Pupil Name', 'Subject', 'Midterm', 'End Term',
+                 'Average', 'Grade', 'Comment', 'Attendance']]
+        number_by_student = {student_id: index + 1 for index, student_id in enumerate(pupil_numbers)}
+        previous_student_id = None
+        for row in class_rows:
+            first_subject_row = row['student_id'] != previous_student_id
+            attendance_text = (
+                f"{row['attendance_present']}P/{row['attendance_absent']}A "
+                f"({attendance_percentage(row['attendance_present'], row['attendance_absent'])}%)"
+            )
+            if row['result_id']:
+                subject = row['subject'] or ''
+                midterm = row['midterm']
+                end_term = row['end_term']
+                average = row['average']
+                grade_text = result_grade(average, selected_grade)
+                comment = row['comment'] or automatic_result_comment(average)
+            else:
+                subject = 'No result entered'
+                midterm = end_term = average = grade_text = comment = '—'
+            data.append([
+                str(number_by_student[row['student_id']]) if first_subject_row else '',
+                Paragraph(escape(str(row['student_number'] or '')), cell_style) if first_subject_row else '',
+                Paragraph(escape(str(row['full_name'] or '')), cell_style) if first_subject_row else '',
+                Paragraph(escape(str(subject)), cell_style),
+                str(midterm), str(end_term), f'{average}%' if average != '—' else average,
+                Paragraph(escape(str(grade_text)), cell_style),
+                Paragraph(escape(str(comment)), cell_style),
+                attendance_text if first_subject_row else '',
+            ])
+            previous_student_id = row['student_id']
+
+        table = Table(
+            data,
+            repeatRows=1,
+            colWidths=[0.75*cm, 2.0*cm, 3.5*cm, 2.7*cm, 1.3*cm, 1.4*cm,
+                       1.4*cm, 2.6*cm, 3.5*cm, 2.5*cm],
+        )
+        table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.35, colors.grey),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9eaf7')),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 7),
+            ('FONTSIZE', (0, 1), (-1, -1), 6.5),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('ALIGN', (4, 1), (7, -1), 'CENTER'),
+            ('ALIGN', (9, 1), (9, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f6f9f8')]),
+        ]))
+        elements.append(table)
+        if class_index < len(class_names) - 1:
+            elements.append(PageBreak())
+
+    doc.build(elements)
+    buffer.seek(0)
+    name_parts = [selected_grade, selected_class or 'All Classes', selected_term, academic_year, 'Results']
+    filename = secure_filename('_'.join(name_parts).replace(' ', '_')) or 'class_results'
+    return send_file(buffer, mimetype='application/pdf', as_attachment=True,
+                     download_name=f'{filename}.pdf')
 
 
 @app.route('/student-portal-control', methods=['GET','POST'])
