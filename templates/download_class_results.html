@@ -2,8 +2,8 @@
 {% block content %}
 <section class="page">
   <h2>Download Class Results</h2>
-  <div class="notice success"><b>Version 20:</b> Download one PDF for every pupil in a selected grade/form, class, term and academic year.</div>
-  <p>The report includes pupil names and numbers, subject marks, automatic grades, teacher comments and attendance percentages.</p>
+  <div class="notice success"><b>Version 20:</b> Download one PDF for every pupil in a selected grade/form, class, term and academic year. Each pupil has a separate report page.</div>
+  <p>The report includes pupil names and numbers, subject marks, automatic grades, teacher comments and attendance percentages. A new page starts for every pupil.</p>
 
   {% if available_grades %}
     <form class="form-card wide" method="get" action="{{ url_for('download_class_results_pdf') }}">

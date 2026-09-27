@@ -2,7 +2,7 @@ KAFUBU BLOCK SCHOOL PORTAL - VERSION 20
 UPLOAD ONLY THESE THREE FILES
 
 NEW FUNCTION
-The authorised staff member can choose a Grade/Form, optional Class, Term and Academic Year, then download one PDF containing the results of every pupil in that selection. The PDF also shows automatic grades, comments and attendance percentages.
+The authorised staff member can choose a Grade/Form, optional Class, Term and Academic Year, then download one PDF containing the results of every pupil in that selection. Every pupil is placed on a separate report page. The PDF also shows automatic grades, comments and attendance percentages.
 
 FILE 1: app.py
 GitHub location: repository root
@@ -47,5 +47,12 @@ HOW TO USE IT
 4. Choose Grade/Form, Class, Term and Academic Year.
 5. Leave Class on All classes in selected grade to download the entire grade.
 6. Click Download All Results PDF.
+
+IMPORTANT RESULT LAYOUT
+
+- Page 1 contains the first pupil's results only.
+- Page 2 contains the second pupil's results only.
+- Every remaining pupil starts on a new page.
+- Results belonging to different pupils are never connected on the same page.
 
 If GitHub does not show the new page after deployment, use Render: Manual Deploy, Clear build cache & deploy.
