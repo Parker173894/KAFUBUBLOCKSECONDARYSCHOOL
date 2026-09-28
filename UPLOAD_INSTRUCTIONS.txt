@@ -1,8 +1,7 @@
-KAFUBU BLOCK SCHOOL PORTAL - VERSION 20
-UPLOAD ONLY THESE THREE FILES
+KAFUBU BLOCK SCHOOL PORTAL - VERSION 21
+PUPIL REGISTRATION INTERNAL SERVER ERROR FIX
 
-NEW FUNCTION
-The authorised staff member can choose a Grade/Form, optional Class, Term and Academic Year, then download one PDF containing the results of every pupil in that selection. Every pupil is placed on a separate report page. The PDF also shows automatic grades, comments and attendance percentages.
+UPLOAD ONLY THESE TWO FILES
 
 FILE 1: app.py
 GitHub location: repository root
@@ -10,49 +9,38 @@ GitHub location: repository root
 1. Open the Kafubublock GitHub repository.
 2. Open app.py.
 3. Click the pencil/Edit button.
-4. Select all the old text and delete it.
-5. Open the new app.py from this package, copy all its text and paste it into GitHub.
+4. Select all the old code and delete it.
+5. Open the new app.py from this package, copy all its code and paste it into GitHub.
 6. Click Commit changes.
 
-FILE 2: dashboard.html
-GitHub location: templates/dashboard.html
+FILE 2: students.html
+GitHub location: templates/students.html
 
 1. Return to the repository root.
-2. Open templates, then dashboard.html.
-3. Click the pencil/Edit button.
-4. Replace all the old text with the text from templates/dashboard.html in this package.
-5. Click Commit changes.
-
-FILE 3: download_class_results.html
-GitHub location: templates/download_class_results.html
-
-1. Return to the templates folder in GitHub.
-2. Click Add file, then Create new file.
-3. In the filename box enter exactly: download_class_results.html
-4. Copy all the text from templates/download_class_results.html in this package and paste it into GitHub.
-5. Click Commit changes.
+2. Open templates.
+3. Open students.html.
+4. Click the pencil/Edit button.
+5. Replace all the old code with the code from templates/students.html in this package.
+6. Click Commit changes.
 
 DEPLOY ON RENDER
 
 1. Open the Render service.
-2. Wait for automatic deployment, or choose Manual Deploy, then Deploy latest commit.
+2. Wait for automatic deployment or choose Manual Deploy, then Deploy latest commit.
 3. Wait until the service shows Live.
-4. Do not delete the persistent disk and do not replace /var/data.
+4. Refresh the Pupil Register page with Ctrl + F5.
 
-HOW TO USE IT
+WHAT THE FIX DOES
 
-1. Log in as Headteacher, Deputy Headteacher, HR, HOD or an assigned Class Teacher.
-2. Open Dashboard.
-3. Click Download Class / Grade Results.
-4. Choose Grade/Form, Class, Term and Academic Year.
-5. Leave Class on All classes in selected grade to download the entire grade.
-6. Click Download All Results PDF.
+- Stops duplicate pupil numbers from causing an Internal Server Error.
+- Shows which pupil is already using the number.
+- Prevents accidental double registration.
+- Saves the pupil and pupil login together.
+- Shows a clear retry message when the database is temporarily busy.
+- Automatically uses the assigned class-teacher name when the Class Teacher field is blank.
 
-IMPORTANT RESULT LAYOUT
+IMPORTANT
 
-- Page 1 contains the first pupil's results only.
-- Page 2 contains the second pupil's results only.
-- Every remaining pupil starts on a new page.
-- Results belonging to different pupils are never connected on the same page.
-
-If GitHub does not show the new page after deployment, use Render: Manual Deploy, Clear build cache & deploy.
+- Every pupil must have a different Pupil Number.
+- Do not upload or replace school.db.
+- Do not delete the Render persistent disk or /var/data.

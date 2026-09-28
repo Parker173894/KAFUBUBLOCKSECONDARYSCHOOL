@@ -769,6 +769,12 @@ def generate_temporary_password():
     return f"Kb{secrets.randbelow(900000) + 100000}{secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ')}{secrets.choice('abcdefghijkmnopqrstuvwxyz')}"
 
 
+def pupil_username_from_number(student_number):
+    """Create a safe login name while keeping familiar numbers such as KBSS-004 -> kbss004."""
+    username = ''.join(character for character in (student_number or '').casefold() if character.isalnum())
+    return username[:50]
+
+
 def password_is_strong(password):
     if len(password) < 8:
         return False, 'Password must have at least 8 characters.'
@@ -1868,12 +1874,128 @@ def edit_school_about():
 @roles_required('teacher', *ROLE_TO_DEPT.keys(), 'headteacher', 'deputy_headteacher', 'hr')
 def students():
     if request.method == 'POST':
-        conn=get_db(); student_number=request.form['student_number'].strip(); full_name=request.form['full_name'].strip(); class_teacher=request.form.get('class_teacher','').strip(); conn.execute('INSERT INTO students(student_number,full_name,grade,class_name,gender,parent_phone,class_teacher,created_at) VALUES(?,?,?,?,?,?,?,?)', (student_number, full_name, request.form['grade'], request.form['class_name'], request.form.get('gender',''), request.form.get('parent_phone',''), class_teacher, datetime.now().strftime('%Y-%m-%d %H:%M')));
-        username=student_number.lower().replace('-', '')
-        temporary_password = generate_temporary_password()
-        if not conn.execute('SELECT id FROM users WHERE username=?', (username,)).fetchone():
-            conn.execute('INSERT INTO users(username,password,role,full_name,position,department,bio,email,phone,student_number,must_change_password,is_active) VALUES(?,?,?,?,?,?,?,?,?,?,1,1)', (username, generate_password_hash(temporary_password), 'student', full_name, 'Pupil', None, 'Pupil portal account for viewing academic results.', '', request.form.get('parent_phone',''), student_number))
-        conn.commit(); conn.close(); flash(f'Pupil added. Username: {username}. Temporary password: {temporary_password}. Give it privately to the pupil; it must be changed at first login.', 'success'); return redirect(url_for('students'))
+        student_number = ' '.join(request.form.get('student_number', '').split())[:40].upper()
+        full_name = ' '.join(request.form.get('full_name', '').split())[:150]
+        grade = request.form.get('grade', '').strip()
+        class_name = ' '.join(request.form.get('class_name', '').split())[:40]
+        class_teacher = ' '.join(request.form.get('class_teacher', '').split())[:150]
+        gender = request.form.get('gender', '').strip()
+        parent_phone = request.form.get('parent_phone', '').strip()[:40]
+
+        if not student_number or not full_name or not class_name:
+            flash('Enter the pupil number, full name and class.', 'warning')
+            return redirect(url_for('students'))
+        if grade not in GRADES:
+            flash('Select a valid grade or form.', 'warning')
+            return redirect(url_for('students'))
+        if gender not in {'Female', 'Male', ''}:
+            gender = ''
+
+        username = pupil_username_from_number(student_number)
+        if not username:
+            flash('The pupil number must contain at least one letter or number.', 'warning')
+            return redirect(url_for('students'))
+
+        conn = get_db()
+        try:
+            existing_pupil = conn.execute(
+                '''SELECT student_number, full_name, grade, class_name FROM students
+                   WHERE lower(trim(student_number))=lower(?) LIMIT 1''',
+                (student_number,),
+            ).fetchone()
+            if existing_pupil:
+                flash(
+                    f'Pupil number {student_number} is already registered to '
+                    f'{existing_pupil["full_name"]} in {existing_pupil["grade"]} '
+                    f'{existing_pupil["class_name"]}. Do not register the same pupil twice.',
+                    'warning',
+                )
+                return redirect(url_for('students'))
+
+            if not class_teacher:
+                assignment = conn.execute(
+                    '''SELECT teacher_name FROM class_teacher_assignments
+                       WHERE grade=? AND class_name=? LIMIT 1''',
+                    (grade, class_name),
+                ).fetchone()
+                if assignment:
+                    class_teacher = assignment['teacher_name']
+
+            existing_user = conn.execute(
+                'SELECT * FROM users WHERE lower(username)=lower(?) LIMIT 1',
+                (username,),
+            ).fetchone()
+            reuse_orphan_account = bool(
+                existing_user
+                and existing_user['role'] == 'student'
+                and (existing_user['student_number'] or '').strip().casefold() == student_number.casefold()
+            )
+            if existing_user and not reuse_orphan_account:
+                base_username = username[:44]
+                suffix = 2
+                username = f'{base_username}pupil'
+                while conn.execute('SELECT 1 FROM users WHERE lower(username)=lower(?)', (username,)).fetchone():
+                    username = f'{base_username}pupil{suffix}'
+                    suffix += 1
+
+            temporary_password = generate_temporary_password()
+            conn.execute(
+                '''INSERT INTO students(
+                   student_number,full_name,grade,class_name,gender,parent_phone,class_teacher,created_at)
+                   VALUES(?,?,?,?,?,?,?,?)''',
+                (student_number, full_name, grade, class_name, gender, parent_phone,
+                 class_teacher, datetime.now().strftime('%Y-%m-%d %H:%M')),
+            )
+            if reuse_orphan_account:
+                conn.execute(
+                    '''UPDATE users SET password=?, full_name=?, position='Pupil', department=NULL,
+                       bio=?, phone=?, student_number=?, must_change_password=1, is_active=1
+                       WHERE id=?''',
+                    (generate_password_hash(temporary_password), full_name,
+                     'Pupil portal account for viewing academic results.', parent_phone,
+                     student_number, existing_user['id']),
+                )
+            else:
+                conn.execute(
+                    '''INSERT INTO users(
+                       username,password,role,full_name,position,department,bio,email,phone,
+                       student_number,must_change_password,is_active)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,1,1)''',
+                    (username, generate_password_hash(temporary_password), 'student', full_name,
+                     'Pupil', None, 'Pupil portal account for viewing academic results.',
+                     '', parent_phone, student_number),
+                )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            flash(
+                f'Pupil number {student_number} is already in use. The duplicate was not saved. '
+                'Refresh the pupil list and use a different pupil number if this is another child.',
+                'warning',
+            )
+            return redirect(url_for('students'))
+        except sqlite3.OperationalError:
+            conn.rollback()
+            flash(
+                'The school database is temporarily busy. No pupil was added. '
+                'Wait a few seconds, refresh the page and submit the registration once.',
+                'danger',
+            )
+            return redirect(url_for('students'))
+        except sqlite3.Error:
+            conn.rollback()
+            app.logger.exception('Pupil registration database error')
+            flash('The pupil could not be registered. No partial record was saved. Please try again.', 'danger')
+            return redirect(url_for('students'))
+        finally:
+            conn.close()
+
+        flash(
+            f'Pupil added successfully. Username: {username}. Temporary password: '
+            f'{temporary_password}. Give it privately to the pupil; it must be changed at first login.',
+            'success',
+        )
+        return redirect(url_for('students'))
     conn=get_db(); rows=conn.execute('SELECT * FROM students ORDER BY grade, class_name, full_name').fetchall(); conn.close(); return render_template('students.html', students=rows)
 
 @app.route('/delete-student/<int:student_id>', methods=['POST'])
